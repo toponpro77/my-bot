@@ -1,6 +1,6 @@
 import os
 import yt_dlp
-from datetime import datetime
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -8,71 +8,34 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 TOKEN = "7832802757:AAGImT_NlBRXsp0PD4BUQoRjJYzTZ3vq228"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """واجهة البوت والتعريف بالمهام"""
+    """رسالة الترحيب والتعليمات"""
     welcome_text = (
-        "🌟 **مرحباً بك في بوت الخدمات الذكي!**\n\n"
-        "🚀 **ماذا يمكنني أن أفعل لك؟**\n"
-        "1️⃣ **تحميل فيديوهات:** أرسل رابط من (تيك توك، إنستا، فيسبوك، يوتيوب، بينترست).\n"
-        "2️⃣ **تحميل صوت (MP3):** أرسل الرابط متبوعاً بكلمة 'صوت' أو 'صوتية'.\n"
-        "3️⃣ **حساب العمر:** أرسل تاريخ ميلادك بهذا الشكل: `1995/05/15` وسأحسب عمرك بالتفصيل.\n\n"
-        "📢 **شارك البوت مع أصدقائك عبر الزر أدناه!**"
+        "👋 **أهلاً بك في بوت التحميل السريع!**\n\n"
+        "📹 **لتحميل فيديو:** أرسل الرابط مباشرة.\n"
+        "🎵 **لتحميل صوت (MP3):** أرسل الرابط متبوعاً بكلمة **صوت**.\n\n"
+        "✅ **المنصات المدعومة:**\n"
+        "TikTok, Instagram, Facebook, YouTube, Pinterest, Snapchat."
     )
     
-    keyboard = [[InlineKeyboardButton("📢 مشاركة البوت", switch_inline_query="جرب هذا البوت المتكامل للتحميل وحساب العمر! 🔥")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
+    keyboard = [[InlineKeyboardButton("📢 مشاركة البوت", switch_inline_query="أفضل بوت لتحميل الفيديوهات والصوتيات! 🔥")]]
+    await update.message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    
-    # 1. التحقق إذا كان الطلب حساب عمر (تاريخ)
-    if "/" in text and len(text.split("/")) == 3:
-        await calculate_age(update, text)
+async def download_content(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url_text = update.message.text
+    if not url_text.startswith("http"):
         return
 
-    # 2. التحقق إذا كان الرابط لتحميل فيديو أو صوت
-    if text.startswith(("http://", "https://")):
-        is_audio = "صوت" in text or "صوتية" in text
-        await download_content(update, text, is_audio)
-    else:
-        await update.message.reply_text("❌ عذراً، أرسل رابطاً صالحاً أو تاريخ ميلاد صحيح (مثلاً: 2000/01/01).")
-
-async def calculate_age(update: Update, birth_date_str: str):
-    """حساب العمر بالتفصيل"""
-    try:
-        birth_date = datetime.strptime(birth_date_str, "%Y/%m/%d")
-        today = datetime.now()
-        
-        years = today.year - birth_date.year
-        months = today.month - birth_date.month
-        days = today.day - birth_date.day
-
-        if days < 0:
-            months -= 1
-            days += 30
-        if months < 0:
-            years -= 1
-            months += 12
-
-        result = (
-            f"📅 **تحليل عمرك بالتفصيل:**\n\n"
-            f"✅ عمرك الآن: `{years}` سنة و `{months}` شهر و `{days}` يوم.\n"
-            f"🎂 تاريخ ميلادك: `{birth_date.strftime('%Y-%m-%d')}`"
-        )
-        await update.message.reply_text(result, parse_mode='Markdown')
-    except:
-        await update.message.reply_text("⚠️ صيغة التاريخ خاطئة! يرجى الإرسال هكذا: سنة/شهر/يوم (مثال: 1998/12/30)")
-
-async def download_content(update: Update, url: str, is_audio: bool):
-    """تحميل الفيديو أو الصوت"""
-    status_msg = await update.message.reply_text("⏳ جاري المعالجة... يرجى الانتظار.")
+    is_audio = "صوت" in url_text
+    # تنظيف الرابط من الكلمات الإضافية
+    url = url_text.replace("صوت", "").strip()
     
-    # تنظيف الرابط من كلمة "صوت" إذا وجدت
-    clean_url = url.replace("صوت", "").replace("صوتية", "").strip()
+    status_msg = await update.message.reply_text("⏳ جاري المعالجة... قد يستغرق الأمر دقيقة.")
 
+    # إعدادات التحميل الاحترافية
     ydl_opts = {
         'outtmpl': f'downloads/%(title)s.%(ext)s',
+        'restrictfilenames': True,
+        'noplaylist': True,
     }
 
     if is_audio:
@@ -85,30 +48,44 @@ async def download_content(update: Update, url: str, is_audio: bool):
             }],
         })
     else:
-        ydl_opts.update({'format': 'best'})
+        # تحميل أفضل جودة فيديو متاحة لا تتعدى حجم محدد (لتجنب أخطاء التلجرام)
+        ydl_opts.update({'format': 'best[ext=mp4]/best'})
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(clean_url, download=True)
-            filename = ydl.prepare_filename(info)
-            if is_audio: filename = filename.rsplit('.', 1)[0] + ".mp3"
-
-            if is_audio:
-                await update.message.reply_audio(audio=open(filename, 'rb'), caption="🎵 تم استخراج الصوت بنجاح.")
-            else:
-                await update.message.reply_video(video=open(filename, 'rb'), caption="🎬 تم تحميل الفيديو بنجاح.")
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
             
-            os.remove(filename)
+            # إذا كان طلباً صوتياً، نقوم بتغيير الامتداد في المسار للبحث عن الملف الناتج
+            if is_audio:
+                file_path = os.path.splitext(file_path)[0] + ".mp3"
+
+            await status_msg.edit_text("⚡ تم التحميل! جاري الرفع إلى تلجرام...")
+
+            with open(file_path, 'rb') as f:
+                if is_audio:
+                    await update.message.reply_audio(audio=f, caption=f"🎵: {info.get('title')}")
+                else:
+                    await update.message.reply_video(video=f, caption=f"🎬: {info.get('title')}")
+
+            # حذف الملف بعد الإرسال
+            if os.path.exists(file_path):
+                os.remove(file_path)
             await status_msg.delete()
+
     except Exception as e:
-        await status_msg.edit_text("❌ حدث خطأ! تأكد من الرابط أو حاول لاحقاً.")
+        print(f"Error: {e}")
+        await status_msg.edit_text("❌ حدث خطأ! الرابط قد يكون خاصاً أو غير مدعوم حالياً.")
 
 def main():
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+        
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_content))
     
-    if not os.path.exists('downloads'): os.makedirs('downloads')
+    print("البوت يعمل...")
     app.run_polling()
 
 if __name__ == "__main__":
