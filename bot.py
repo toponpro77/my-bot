@@ -1,93 +1,66 @@
 import telebot
-from datetime import datetime
-import os
-from flask import Flask
 from telebot import types
+from yt_dlp import YoutubeDL
+import os
+import threading
+import static_ffmpeg
 
-# إعداد Flask لضمان استمرارية الخدمة على Render
-app = Flask(__name__)
+# جلب أدوات معالجة الفيديو تلقائياً لضمان العمل على Render
+static_ffmpeg.add_paths()
 
-@app.route('/')
-def index():
-    return "ZamanBot is Live and Running!"
-
-# التوكن الخاص بك (تم تحديثه بناءً على صورك)
-API_TOKEN = '7832802757:AAGImT_NlBRXsp0PD4BUQoRjJYzTZ3vq228'
+# التوكن الخاص بك تم إدراجه هنا
+API_TOKEN = '1576873297:AAEcH0Zu3obbOcebUByjnRQYOCpSCByiv0A'
 bot = telebot.TeleBot(API_TOKEN)
 
-# دالة لإنشاء لوحة المفاتيح التفاعلية (زر المشاركة)
-def main_markup():
-    markup = types.InlineKeyboardMarkup()
-    share_btn = types.InlineKeyboardButton(
-        text="شارك البوت | Share Bot 🚀", 
-        url=f"https://t.me/share/url?url=https://t.me/wollf77_bot&text=احسب عمرك بالتفصيل (سنة، شهر، يوم) مجاناً!"
-    )
-    markup.add(share_btn)
-    return markup
+user_links = {}
 
-# معالجة أوامر /start و /help
-@bot.message_handler(commands=['start', 'help'])
-def welcome(message):
-    welcome_msg = (
-        "✨ **مرحباً بك في ZamanBot** ✨\n\n"
-        "أنا بوت متخصص في حساب عمرك بدقة متناهية.\n\n"
-        "📖 **طريقة الاستخدام:**\n"
-        "فقط أرسل تاريخ ميلادك بالتنسيق التالي:\n"
-        "👈 `يوم/شهر/سنة` (مثال: `15/05/1998`)\n\n"
-        "--------------------------\n"
-        "✨ **Welcome to ZamanBot** ✨\n\n"
-        "I calculate your exact age in detail.\n\n"
-        "📖 **How to use:**\n"
-        "Just send your birthdate as:\n"
-        "👈 `DD/MM/YYYY` (Example: `15/05/1998`)"
-    )
-    bot.reply_to(message, welcome_msg, parse_mode='Markdown', reply_markup=main_markup())
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "🎬 **أهلاً بك في بوت التحميل الذكي!**\n\nأرسل رابطاً من (Instagram, TikTok, YouTube, FB) وسأقوم بتحميله لك فوراً.")
 
-# معالجة النصوص وحساب العمر
 @bot.message_handler(func=lambda message: True)
-def calculate_age(message):
-    # تجاهل الأوامر لكي لا يظهر خطأ "الصيغة"
-    if message.text.startswith('/'):
+def handle_message(message):
+    url = message.text
+    if "http" in url:
+        user_links[message.chat.id] = url
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("🎥 فيديو", callback_data="video"),
+                   types.InlineKeyboardButton("🎵 صوت MP3", callback_data="audio"))
+        bot.reply_to(message, "اختر صيغة التحميل المطلوبة:", reply_markup=markup)
+    else:
+        bot.reply_to(message, "الرجاء إرسال رابط صحيح يبدأ بـ http")
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    url = user_links.get(call.message.chat.id)
+    if not url:
+        bot.answer_callback_query(call.id, "انتهت الجلسة، أرسل الرابط مرة أخرى.")
         return
+    
+    bot.edit_message_text("⏳ جاري المعالجة والتحميل... يرجى الانتظار.", call.message.chat.id, call.message.message_id)
+    threading.Thread(target=download_and_send, args=(call.message, url, call.data)).start()
 
+def download_and_send(msg, url, mode):
+    file_name = f"file_{msg.chat.id}.{'mp4' if mode == 'video' else 'mp3'}"
+    ydl_opts = {
+        'format': 'best' if mode == 'video' else 'bestaudio/best',
+        'outtmpl': file_name,
+        'max_filesize': 48 * 1024 * 1024, # حماية للسيرفر لضمان عدم تجاوز 50 ميجا
+    }
+    
     try:
-        # محاولة قراءة التاريخ
-        birth_date = datetime.strptime(message.text, "%d/%m/%Y")
-        today = datetime.now()
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
         
-        # العملية الحسابية للدقة
-        years = today.year - birth_date.year
-        months = today.month - birth_date.month
-        days = today.day - birth_date.day
-
-        if days < 0:
-            months -= 1
-            days += 30 
-        if months < 0:
-            years -= 1
-            months += 12
-
-        response = (
-            f"📊 **نتيجة حساب العمر:**\n"
-            f"━━━━━━━━━━━━━━\n"
-            f"🔹 عمرك هو: **{years}** سنة و **{months}** شهر و **{days}** يوم.\n"
-            f"━━━━━━━━━━━━━━\n"
-            f"📊 **Age Calculation Result:**\n"
-            f"🔹 Your age: **{years}** years, **{months}** months, **{days}** days."
-        )
-        bot.reply_to(message, response, parse_mode='Markdown', reply_markup=main_markup())
+        with open(file_name, 'rb') as f:
+            if mode == 'video':
+                bot.send_video(msg.chat.id, f, caption="✨ تم التحميل بنجاح عبر بوتك!")
+            else:
+                bot.send_audio(msg.chat.id, f, caption="🎶 تم استخراج الصوت بنجاح!")
         
-    except ValueError:
-        error_text = (
-            "⚠️ **خطأ في الصيغة!**\n"
-            "يرجى إرسال التاريخ بشكل صحيح: `يوم/شهر/سنة`\n"
-            "مثال: `01/01/2000`"
-        )
-        bot.reply_to(message, error_text, parse_mode='Markdown')
+        os.remove(file_name) # حذف الملف لتوفير المساحة
+    except Exception as e:
+        bot.send_message(msg.chat.id, "❌ خطأ: الرابط غير مدعوم أو حجم الملف كبير جداً (يجب أن يكون أقل من 50 ميجا).")
+        if os.path.exists(file_name): os.remove(file_name)
 
-# تشغيل البوت
-if __name__ == "__main__":
-    import threading
-    threading.Thread(target=lambda: bot.polling(none_stop=True)).start()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+bot.infinity_polling()
