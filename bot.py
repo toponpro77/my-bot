@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # --- الإعدادات الأساسية ---
 TOKEN = "7832802757:AAGImT_NlBRXsp0PD4BUQoRjJYzTZ3vq228"
-MY_ID = 1560121587  # ⚠️ ضع هنا رقم ID حسابك الشخصي لتصلك الإشعارات
+MY_ID = 1560121587  # ✅ تم وضع الآيدي الخاص بك بنجاح
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -42,8 +42,6 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     status_msg = await update.message.reply_text("⏳ جاري تحضير الفيديو والصوت... يرجى الانتظار.")
 
-    # إعدادات التحميل (تنزيل أفضل جودة فيديو وأفضل جودة صوت)
-    # سيتم تنزيل الفيديو أولاً ثم استخراج الصوت منه
     ydl_opts_video = {
         'format': 'best[ext=mp4]/best',
         'outtmpl': 'downloads/%(id)s_video.%(ext)s',
@@ -63,22 +61,18 @@ async def handle_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts_video) as ydl_v, yt_dlp.YoutubeDL(ydl_opts_audio) as ydl_a:
-            # تحميل الفيديو
             info_v = ydl_v.extract_info(url, download=True)
             video_path = ydl_v.prepare_filename(info_v)
             
-            # تحميل الصوت
             info_a = ydl_a.extract_info(url, download=True)
             audio_path = ydl_a.prepare_filename(info_a).rsplit('.', 1)[0] + ".mp3"
 
             await status_msg.edit_text("⚡ تم التحميل! جاري الإرسال...")
 
-            # إرسال الفيديو والصوت معاً
             with open(video_path, 'rb') as v, open(audio_path, 'rb') as a:
                 await update.message.reply_video(video=v, caption="🎬 تم تحميل الفيديو بنجاح")
                 await update.message.reply_audio(audio=a, title=info_v.get('title'), caption="🎵 ملف الصوت المستخرج")
 
-            # حذف الملفات بعد الإرسال
             if os.path.exists(video_path): os.remove(video_path)
             if os.path.exists(audio_path): os.remove(audio_path)
             await status_msg.delete()
