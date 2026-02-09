@@ -5,7 +5,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # --- الإعدادات الأساسية ---
 TOKEN = "7832802757:AAGImT_NlBRXsp0PD4BUQoRjJYzTZ3vq228"
-MY_ID = 12345678  # ⚠️ ضع هنا رقم ID حسابك الشخصي لتصلك الإشعارات
+MY_ID = 1560121587  # ⚠️ ضع هنا رقم ID حسابك الشخصي لتصلك الإشعارات
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
