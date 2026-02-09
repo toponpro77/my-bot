@@ -1,66 +1,97 @@
-import telebot
-from telebot import types
-from yt_dlp import YoutubeDL
 import os
-import threading
-import static_ffmpeg
+import yt_dlp
+import asyncio
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# جلب أدوات معالجة الفيديو تلقائياً لضمان العمل على Render
-static_ffmpeg.add_paths()
+# التوكن الخاص بك
+TOKEN = "7832802757:AAGImT_NlBRXsp0PD4BUQoRjJYzTZ3vq228"
 
-# التوكن الخاص بك تم إدراجه هنا
-API_TOKEN = '1576873297:AAEcH0Zu3obbOcebUByjnRQYOCpSCByiv0A'
-bot = telebot.TeleBot(API_TOKEN)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """واجهة البوت الاحترافية عند البدء"""
+    user = update.effective_user
+    
+    # رسالة المهام والتعليمات
+    welcome_text = (
+        f"👋 **أهلاً بك يا {user.first_name} في Ultimate Downloader!**\n\n"
+        "🚀 **ما هي قدرات هذا البوت؟**\n"
+        "✨ تحميل من **تيك توك** (بدون علامة مائية).\n"
+        "✨ تحميل من **إنستغرام** (Reels و فيديوهات).\n"
+        "✨ تحميل من **فيسبوك** بجودة عالية.\n"
+        "✨ تحميل من **بينترست** (Pinterest).\n"
+        "✨ تحميل من **سناب شات** و **يوتيوب**.\n\n"
+        "📖 **طريقة الاستخدام:**\n"
+        "فقط أرسل رابط الفيديو، وسأقوم بالباقي!"
+    )
 
-user_links = {}
+    # أزرار التفاعل (مشاركة البوت)
+    keyboard = [
+        [
+            InlineKeyboardButton("📢 مشاركة البوت", switch_inline_query="جرب هذا البوت الرهيب لتحميل الفيديوهات! 🔥")
+        ],
+        [
+            InlineKeyboardButton("👨‍💻 المطور", url="https://t.me/BotFather") # يمكنك وضع رابط حسابك هنا
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "🎬 **أهلاً بك في بوت التحميل الذكي!**\n\nأرسل رابطاً من (Instagram, TikTok, YouTube, FB) وسأقوم بتحميله لك فوراً.")
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode='Markdown')
 
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
-    url = message.text
-    if "http" in url:
-        user_links[message.chat.id] = url
-        markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("🎥 فيديو", callback_data="video"),
-                   types.InlineKeyboardButton("🎵 صوت MP3", callback_data="audio"))
-        bot.reply_to(message, "اختر صيغة التحميل المطلوبة:", reply_markup=markup)
-    else:
-        bot.reply_to(message, "الرجاء إرسال رابط صحيح يبدأ بـ http")
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
-    url = user_links.get(call.message.chat.id)
-    if not url:
-        bot.answer_callback_query(call.id, "انتهت الجلسة، أرسل الرابط مرة أخرى.")
+async def download_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text
+    
+    # التحقق من أن النص المرسل هو رابط
+    if not url.startswith(("http://", "https://")):
         return
-    
-    bot.edit_message_text("⏳ جاري المعالجة والتحميل... يرجى الانتظار.", call.message.chat.id, call.message.message_id)
-    threading.Thread(target=download_and_send, args=(call.message, url, call.data)).start()
 
-def download_and_send(msg, url, mode):
-    file_name = f"file_{msg.chat.id}.{'mp4' if mode == 'video' else 'mp3'}"
+    status_msg = await update.message.reply_text("🔍 جاري فحص الرابط واستخراج الفيديو...")
+
+    # إعدادات yt-dlp المتقدمة لدعم كافة المنصات
     ydl_opts = {
-        'format': 'best' if mode == 'video' else 'bestaudio/best',
-        'outtmpl': file_name,
-        'max_filesize': 48 * 1024 * 1024, # حماية للسيرفر لضمان عدم تجاوز 50 ميجا
+        'format': 'best',
+        'outtmpl': f'downloads/{update.effective_user.id}_%(title)s.%(ext)s',
+        'quiet': True,
+        'no_warnings': True,
     }
-    
-    try:
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        
-        with open(file_name, 'rb') as f:
-            if mode == 'video':
-                bot.send_video(msg.chat.id, f, caption="✨ تم التحميل بنجاح عبر بوتك!")
-            else:
-                bot.send_audio(msg.chat.id, f, caption="🎶 تم استخراج الصوت بنجاح!")
-        
-        os.remove(file_name) # حذف الملف لتوفير المساحة
-    except Exception as e:
-        bot.send_message(msg.chat.id, "❌ خطأ: الرابط غير مدعوم أو حجم الملف كبير جداً (يجب أن يكون أقل من 50 ميجا).")
-        if os.path.exists(file_name): os.remove(file_name)
 
-bot.infinity_polling()
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # استخراج المعلومات والتحميل
+            info = ydl.extract_info(url, download=True)
+            file_path = ydl.prepare_filename(info)
+            
+            await status_msg.edit_text("⚡ تم التحميل بنجاح! جاري إرسال الفيديو...")
+
+            # إرسال الفيديو
+            with open(file_path, 'rb') as video:
+                await update.message.reply_video(
+                    video=video, 
+                    caption=f"✅ تم التحميل بواسطة: @{context.bot.username}\n🎬 العنوان: {info.get('title', 'Video')}"
+                )
+            
+            # حذف الملف من السيرفر لتوفير المساحة
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            
+            await status_msg.delete()
+
+    except Exception as e:
+        await status_msg.edit_text(f"❌ عذراً، لا يمكن تحميل هذا الرابط حالياً.\nتأكد أن الحساب عام وليس خاص.")
+        print(f"Error: {e}")
+
+def main():
+    # بناء التطبيق
+    application = Application.builder().token(TOKEN).build()
+
+    # الأوامر والمراقبين
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_video))
+
+    print("✅ البوت يعمل الآن بنجاح...")
+    application.run_polling()
+
+if __name__ == '__main__':
+    # إنشاء مجلد التحميل إذا لم يكن موجوداً
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+    main()
